@@ -51,7 +51,7 @@ static const uint32_t WALLET_BTC_KB_TO_SAT_B = COIN / 1000; // 1 sat / B = 0.000
 
 static inline bool GetAvoidReuseFlag(const CWallet* const pwallet, const UniValue& param) {
     bool can_avoid_reuse = pwallet->IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE);
-    bool avoid_reuse = param.isNull() ? can_avoid_reuse : param.get_bool();
+    bool avoid_reuse = param.isEmpty() ? can_avoid_reuse : param.get_bool();
 
     if (avoid_reuse && !can_avoid_reuse) {
         throw JSONRPCError(RPC_WALLET_ERROR, "wallet does not have the \"avoid reuse\" feature enabled");
@@ -206,14 +206,14 @@ static std::string LabelFromValue(const UniValue& value)
  */
 static void SetFeeEstimateMode(const CWallet* pwallet, CCoinControl& cc, const UniValue& estimate_mode, const UniValue& estimate_param)
 {
-    if (!estimate_mode.isNull()) {
+    if (!estimate_mode.isEmpty()) {
         if (!FeeModeFromString(estimate_mode.get_str(), cc.m_fee_mode)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid estimate_mode parameter");
         }
     }
 
     if (cc.m_fee_mode == FeeEstimateMode::BTC_KB || cc.m_fee_mode == FeeEstimateMode::SAT_B) {
-        if (estimate_param.isNull()) {
+        if (estimate_param.isEmpty()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Selected estimate_mode requires a fee rate");
         }
 
@@ -226,7 +226,7 @@ static void SetFeeEstimateMode(const CWallet* pwallet, CCoinControl& cc, const U
 
         // default RBF to true for explicit fee rate modes
         if (cc.m_signal_bip125_rbf == nullopt) cc.m_signal_bip125_rbf = true;
-    } else if (!estimate_param.isNull()) {
+    } else if (!estimate_param.isEmpty()) {
         cc.m_confirm_target = ParseConfirmTarget(estimate_param, pwallet->chain().estimateMaxBlocks());
     }
 }
@@ -443,6 +443,7 @@ static RPCHelpMan sendtoaddress()
                     {"conf_target", RPCArg::Type::NUM, /* default */ "wallet default", "Confirmation target (in blocks), or fee rate (for " + CURRENCY_UNIT + "/kB or " + CURRENCY_ATOM + "/B estimate modes)"},
                     {"estimate_mode", RPCArg::Type::STR, /* default */ "unset", std::string() + "The fee estimate mode, must be one of (case insensitive):\n"
             "       \"" + FeeModes("\"\n\"") + "\""},
+                    {"change_address", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "Change address."},
                     {"avoid_reuse", RPCArg::Type::BOOL, /* default */ "true", "(only available if avoid_reuse wallet flag is set) Avoid spending from dirty addresses; addresses are considered\n"
                                          "dirty if they have previously been used in a transaction."},
                     {"verbose", RPCArg::Type::BOOL, /* default */ "false", "If true, return extra information about the transaction."},
@@ -487,16 +488,24 @@ static RPCHelpMan sendtoaddress()
         mapValue["to"] = request.params[3].get_str();
 
     bool fSubtractFeeFromAmount = false;
-    if (!request.params[4].isNull()) {
+    if (!request.params[4].isEmpty()) {
         fSubtractFeeFromAmount = request.params[4].get_bool();
     }
 
     CCoinControl coin_control;
-    if (!request.params[5].isNull()) {
+    if (!request.params[5].isEmpty()) {
         coin_control.m_signal_bip125_rbf = request.params[5].get_bool();
     }
 
-    coin_control.m_avoid_address_reuse = GetAvoidReuseFlag(pwallet, request.params[8]);
+    if (!request.params[8].isEmpty()) {
+        CTxDestination changeDest = DecodeDestination(request.params[8].get_str());
+            if (!IsValidDestination(changeDest)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid change address");
+            }
+        coin_control.destChange = changeDest;
+    }
+
+    coin_control.m_avoid_address_reuse = GetAvoidReuseFlag(pwallet, request.params[9]);
     // We also enable partial spend avoidance if reuse avoidance is set.
     coin_control.m_avoid_partial_spends |= coin_control.m_avoid_address_reuse;
 
@@ -514,7 +523,7 @@ static RPCHelpMan sendtoaddress()
 
     std::vector<CRecipient> recipients;
     ParseRecipients(address_amounts, subtractFeeFromAmount, recipients);
-    bool verbose = request.params[9].isNull() ? false: request.params[9].get_bool();
+    bool verbose = request.params[10].isEmpty() ? false: request.params[10].get_bool();
 
     return SendMoney(pwallet, coin_control, recipients, mapValue, verbose);
 },
@@ -4532,7 +4541,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "rescanblockchain",                 &rescanblockchain,              {"start_height", "stop_height"} },
     { "wallet",             "send",                             &send,                          {"outputs","conf_target","estimate_mode","options"} },
     { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode","verbose"} },
-    { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode","avoid_reuse","verbose"} },
+    { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode", "change_address", "avoid_reuse","verbose"} },
     { "wallet",             "sethdseed",                        &sethdseed,                     {"newkeypool","seed"} },
     { "wallet",             "setlabel",                         &setlabel,                      {"address","label"} },
     { "wallet",             "settxfee",                         &settxfee,                      {"amount"} },
