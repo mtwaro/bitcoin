@@ -880,6 +880,7 @@ static RPCHelpMan sendmany()
                     {"conf_target", RPCArg::Type::NUM, /* default */ "wallet default", "Confirmation target (in blocks), or fee rate (for " + CURRENCY_UNIT + "/kB or " + CURRENCY_ATOM + "/B estimate modes)"},
                     {"estimate_mode", RPCArg::Type::STR, /* default */ "unset", std::string() + "The fee estimate mode, must be one of (case insensitive):\n"
             "       \"" + FeeModes("\"\n\"") + "\""},
+                    {"change_address", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "Change address."},
                     {"verbose", RPCArg::Type::BOOL, /* default */ "false", "If true, return extra infomration about the transaction."},
                 },
                 {
@@ -928,19 +929,27 @@ static RPCHelpMan sendmany()
         mapValue["comment"] = request.params[3].get_str();
 
     UniValue subtractFeeFromAmount(UniValue::VARR);
-    if (!request.params[4].isNull())
+    if (!request.params[4].isEmpty())
         subtractFeeFromAmount = request.params[4].get_array();
 
     CCoinControl coin_control;
-    if (!request.params[5].isNull()) {
+    if (!request.params[5].isEmpty()) {
         coin_control.m_signal_bip125_rbf = request.params[5].get_bool();
+    }
+
+    if (!request.params[8].isEmpty()) {
+        CTxDestination changeDest = DecodeDestination(request.params[8].get_str());
+            if (!IsValidDestination(changeDest)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid change address");
+            }
+        coin_control.destChange = changeDest;
     }
 
     SetFeeEstimateMode(pwallet, coin_control, request.params[7], request.params[6]);
 
     std::vector<CRecipient> recipients;
     ParseRecipients(sendTo, subtractFeeFromAmount, recipients);
-    bool verbose = request.params[8].isNull() ? false : request.params[8].get_bool();
+    bool verbose = request.params[9].isEmpty() ? false : request.params[9].get_bool();
 
     return SendMoney(pwallet, coin_control, recipients, std::move(mapValue), verbose);
 },
@@ -4540,7 +4549,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "removeprunedfunds",                &removeprunedfunds,             {"txid"} },
     { "wallet",             "rescanblockchain",                 &rescanblockchain,              {"start_height", "stop_height"} },
     { "wallet",             "send",                             &send,                          {"outputs","conf_target","estimate_mode","options"} },
-    { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode","verbose"} },
+    { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode", "change_address", "verbose"} },
     { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode", "change_address", "avoid_reuse","verbose"} },
     { "wallet",             "sethdseed",                        &sethdseed,                     {"newkeypool","seed"} },
     { "wallet",             "setlabel",                         &setlabel,                      {"address","label"} },
